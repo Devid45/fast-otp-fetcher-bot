@@ -43,9 +43,9 @@ async def is_user_subscribed(context, user_id):
     except:
         return False
 
-# ==================== 2FA ====================
+# ==================== 2FA HANDLER ====================
 async def twofa_start(update: Update, context):
-    await update.message.reply_text("🔐 **2FA Code Generator**\n\nআপনার **2FA Secret Key** পাঠান (2fa-auth.com থেকে):")
+    await update.message.reply_text("🔐 **2FA Code Generator**\n\nআপনার **2FA Secret Key** পাঠান:")
     return SECRET_KEY
 
 async def twofa_generate(update: Update, context):
@@ -55,53 +55,73 @@ async def twofa_generate(update: Update, context):
         code = totp.now()
         remaining = totp.interval - (int(datetime.now().timestamp()) % totp.interval)
         
-        await update.message.reply_text(f"✅ **2FA Code:** `{code}`\nValid for {remaining} seconds", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(f"✅ **Code:** `{code}`\nValid for {remaining} seconds", parse_mode=ParseMode.MARKDOWN)
         
         await context.bot.send_message(
             chat_id=OTP_CHANNEL,
-            text=f"🌟 **2FA Code:** `{code}` | Expires in {remaining}s",
+            text=f"🌟 **2FA Code:** `{code}` | {remaining}s left",
             parse_mode=ParseMode.MARKDOWN
         )
     except:
         await update.message.reply_text("❌ Invalid Secret Key! আবার চেষ্টা করুন।")
     return ConversationHandler.END
 
-# ==================== OTP FUNCTIONS ====================
+# ==================== OTP MONITORING ====================
 active_otp_tasks = {}
 
-async def check_otp(...):  # আপনার আগের check_otp ফাংশন রাখুন (সংক্ষেপে রাখছি)
-    pass  # পুরো ফাংশন আগের কোড থেকে নিন
+async def check_otp(context, chat_id, number, username=None):
+    full_number = re.sub(r'\D', '', str(number))
+    for attempt in range(900):
+        await asyncio.sleep(2)
+        try:
+            res = await call_website_api_async("success-otp-info", method="GET")
+            if res and "data" in res and "otps" in res.get("data", {}):
+                for item in res["data"]["otps"]:
+                    item_num = re.sub(r'\D', '', str(item.get("number", "")))
+                    if item_num == full_number or item_num.endswith(full_number[-8:]):
+                        otp = item.get("otp") or item.get("code")
+                        if otp:
+                            await context.bot.send_message(chat_id=chat_id, text=f"✅ OTP: `{otp}`", parse_mode=ParseMode.MARKDOWN)
+                            await context.bot.send_message(chat_id=OTP_CHANNEL, text=f"🔑 OTP for +{full_number[-6:]}: `{otp}`")
+                            return
+        except:
+            continue
+    await context.bot.send_message(chat_id=chat_id, text="❌ Timeout!")
+
+async def call_website_api_async(endpoint, method="POST", payload=None):
+    try:
+        url = f"https://2eee7.com/@Access/@Bot/2eee7/@public/api/{endpoint}"
+        headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            if method == "GET":
+                r = await client.get(url, headers=headers)
+            else:
+                r = await client.post(url, json=payload, headers=headers)
+            return r.json() if r.status_code == 200 else None
+    except:
+        return None
 
 async def start(update, context):
-    # আগের start ফাংশন
-    pass
-
-async def handle_callback(update, context):
-    # আগের handle_callback ফাংশন
-    pass
-
-async def show_services(msg):
-    kb = [[InlineKeyboardButton("🔷 FACEBOOK 🔷", callback_data="service_facebook")],
-          [InlineKeyboardButton("📸 INSTAGRAM 📸", callback_data="service_instagram")]]
-    await msg.reply_text("Select platform:", reply_markup=InlineKeyboardMarkup(kb))
+    if not await is_user_subscribed(context, update.effective_user.id):
+        # Join message
+        await update.message.reply_text("চ্যানেলে জয়েন করুন")
+    else:
+        await update.message.reply_text("স্বাগতম!", reply_markup=main_keyboard)
 
 async def text_handler(update, context):
     if not await is_user_subscribed(context, update.effective_user.id):
         return await start(update, context)
     text = update.message.text
     if "GET NUMBER" in text:
-        await show_services(update.message)
+        await update.message.reply_text("GET NUMBER সার্ভিস চালু আছে")
     elif "2FA CODE" in text:
         return await twofa_start(update, context)
     elif "LIVE OTP" in text:
-        await update.message.reply_text("Join Channel:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📡 View Live", url=f"https://t.me/{OTP_CHANNEL.replace('@', '')}")]]))
-    else:
-        await update.message.reply_text("মেনু থেকে সিলেক্ট করুন।")
+        await update.message.reply_text("Join Channel", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("View Live", url=f"https://t.me/{OTP_CHANNEL.replace('@', '')}")]]))
 
 # ==================== APP ====================
 app = Application.builder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(handle_callback))
 app.add_handler(ConversationHandler(
     entry_points=[MessageHandler(filters.Regex('2FA CODE'), twofa_start)],
     states={SECRET_KEY: [MessageHandler(filters.TEXT & ~filters.COMMAND, twofa_generate)]},
