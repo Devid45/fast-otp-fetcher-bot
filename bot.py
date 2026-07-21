@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ==================== CONFIG ====================
 TOKEN = os.getenv("BOT_TOKEN")
 API_KEY = os.getenv("SMS_API_KEY")
 
@@ -35,11 +36,12 @@ COUNTRY_MAP = {
     "225": {"name": "Ivory Coast", "flag": "🇨🇮"}
 }
 
+# ==================== FAST API ====================
 async def call_website_api_async(endpoint, method="POST", payload=None):
     try:
         url = f"https://2eee7.com/@Access/@Bot/2eee7/@public/api/{endpoint}"
         headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
-        async with httpx.AsyncClient(timeout=6.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             if method == "GET":
                 r = await client.get(url, headers=headers)
             else:
@@ -72,12 +74,12 @@ async def twofa_generate(update: Update, context):
         totp = pyotp.TOTP(secret)
         code = totp.now()
         remaining = 30 - (int(datetime.now().timestamp()) % 30)
-        await update.message.reply_text(f"✅ **Code:** `{code}`\n⏱ {remaining} সেকেন্ড", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(f"✅ **Code:** `{code}`\n⏱ Valid for {remaining}s", parse_mode=ParseMode.MARKDOWN)
     except:
         await update.message.reply_text("❌ Invalid Secret Key!")
     return ConversationHandler.END
 
-# ==================== OTP ====================
+# ==================== OTP MONITOR (Fast) ====================
 async def check_otp(context, chat_id, number):
     full_number = re.sub(r'\D', '', str(number))
     for _ in range(600):
@@ -90,12 +92,39 @@ async def check_otp(context, chat_id, number):
                     if otp:
                         country = get_country_details(number)
                         hidden = f"+{full_number[:6]}{'*'*(len(full_number)-6)}"
-                        await context.bot.send_message(chat_id=chat_id, text=f"✅ **OTP RECEIVED**\n📱 `{hidden}`\n🔑 `{otp}`", parse_mode=ParseMode.MARKDOWN)
-                        await context.bot.send_message(chat_id=OTP_CHANNEL, text=f"🌟 **NEW OTP**\n{country['flag']} {country['name']}\n📱 `{hidden}`\n🔑 `{otp}`", parse_mode=ParseMode.MARKDOWN)
+                        
+                        # Private Chat
+                        await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=f"✅ **OTP RECEIVED**\n📱 `{hidden}`\n🔑 `{otp}`",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                        
+                        # Group with stylish buttons
+                        keyboard = InlineKeyboardMarkup([
+                            [InlineKeyboardButton("🤖 OTP BOT যান", url=f"https://t.me/{BOT_USERNAME}")],
+                            [InlineKeyboardButton("📢 আপডেট গ্রুপে যান", url=f"https://t.me/{UPDATE_CHANNEL.replace('@', '')}")]
+                        ])
+                        
+                        public_text = f"""
+🌟 **META FIRE OTP** 🌟
+🔥 **NEW OTP RECEIVED** 🔥
+
+{country['flag']} **{country['name']}**
+📱 **Number:** `{hidden}`
+🔑 **OTP Code:** `{otp}`
+🕒 **Time:** {datetime.now().strftime('%I:%M:%S %p')}
+                        """
+                        await context.bot.send_message(
+                            chat_id=OTP_CHANNEL,
+                            text=public_text.strip(),
+                            parse_mode=ParseMode.MARKDOWN,
+                            reply_markup=keyboard
+                        )
                         return
     await context.bot.send_message(chat_id=chat_id, text="❌ Timeout!")
 
-# ==================== SERVICES ====================
+# ==================== SERVICES & RANGES ====================
 async def show_services(msg):
     kb = [
         [InlineKeyboardButton("🔷 FACEBOOK 🔷", callback_data="service_facebook")],
@@ -121,12 +150,18 @@ async def show_ranges(msg, service):
                         kb.append([InlineKeyboardButton(f"{COUNTRY_MAP[p]['flag']} {COUNTRY_MAP[p]['name']}", callback_data=f"range_{service}_{r}")])
     
     kb.append([InlineKeyboardButton("🔙 Back", callback_data="back_to_services")])
-    if kb:
-        await msg.edit_text("**দেশ সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
-    else:
-        await msg.edit_text("❌ কোন দেশ পাওয়া যায়নি।")
+    await msg.edit_text("**দেশ সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
 
-# ==================== CALLBACK ====================
+# ==================== MAIN HANDLERS ====================
+async def start(update, context):
+    if not await is_user_subscribed(context, update.effective_user.id):
+        kb = [[InlineKeyboardButton("Join Update", url=f"https://t.me/{UPDATE_CHANNEL.replace('@', '')}")],
+              [InlineKeyboardButton("Join OTP", url=f"https://t.me/{OTP_CHANNEL.replace('@', '')}")],
+              [InlineKeyboardButton("✅ Verify", callback_data="verify")]]
+        await update.message.reply_text("চ্যানেলে জয়েন করে Verify করুন।", reply_markup=InlineKeyboardMarkup(kb))
+    else:
+        await update.message.reply_text("✅ স্বাগতম! মেনু থেকে সিলেক্ট করুন।", reply_markup=main_keyboard)
+
 async def handle_callback(update, context):
     query = update.callback_query
     await query.answer()
@@ -136,6 +171,8 @@ async def handle_callback(update, context):
         if await is_user_subscribed(context, query.from_user.id):
             await query.message.delete()
             await context.bot.send_message(query.message.chat_id, "✅ ভেরিফাইড!", reply_markup=main_keyboard)
+        else:
+            await query.answer("চ্যানেলে জয়েন করুন!", show_alert=True)
 
     elif query.data.startswith("service_"):
         await show_ranges(query.message, query.data.split("_")[1])
@@ -166,7 +203,6 @@ async def handle_callback(update, context):
         await query.message.delete()
         await show_services(query.message)
 
-# ==================== TEXT HANDLER ====================
 async def text_handler(update, context):
     if not await is_user_subscribed(context, update.effective_user.id):
         return await start(update, context)
@@ -179,17 +215,7 @@ async def text_handler(update, context):
     elif "LIVE OTP" in text:
         await update.message.reply_text("📡 LIVE OTP SECTION", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("View Live", url=f"https://t.me/{OTP_CHANNEL.replace('@', '')}")]]))
 
-# ==================== START ====================
-async def start(update, context):
-    if not await is_user_subscribed(context, update.effective_user.id):
-        kb = [[InlineKeyboardButton("Join Update", url=f"https://t.me/{UPDATE_CHANNEL.replace('@', '')}")],
-              [InlineKeyboardButton("Join OTP", url=f"https://t.me/{OTP_CHANNEL.replace('@', '')}")],
-              [InlineKeyboardButton("✅ Verify", callback_data="verify")]]
-        await update.message.reply_text("চ্যানেলে জয়েন করে Verify করুন।", reply_markup=InlineKeyboardMarkup(kb))
-    else:
-        await update.message.reply_text("✅ স্বাগতম!", reply_markup=main_keyboard)
-
-# ==================== RUN ====================
+# ==================== APP ====================
 app = Application.builder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CallbackQueryHandler(handle_callback))
