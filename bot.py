@@ -11,16 +11,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ==================== LOAD FROM .env ====================
 TOKEN = os.getenv("BOT_TOKEN")
 API_KEY = os.getenv("SMS_API_KEY")
+# =======================================================
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-
-# ==================== UPDATED CHANNELS & BOT ====================
+# ==================== CHANNELS & BOT ====================
 UPDATE_CHANNEL = "@META_FIRE_UPDATE"
 OTP_CHANNEL = "@META_FIRE_OTP"
 BOT_USERNAME = "Meta_Fire_OTP_Bot"
-# ============================================================
+# =======================================================
+
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 main_keyboard = ReplyKeyboardMarkup([
     [KeyboardButton("🔥 GET NUMBER 🔥")],
@@ -142,7 +144,7 @@ async def handle_callback(update, context):
   
     elif query.data.startswith("range_") or query.data.startswith("chgnum_"):
         parts = query.data.split("_")
-        if query.message.chat_id in active_otp_tasks:
+        if query.message.chat_id in active_otp_tasks:  # Note: active_otp_tasks needs to be defined globally
             active_otp_tasks[query.message.chat_id].cancel()
       
         status_msg = await query.message.edit_text("⚡ _Allocating number..._")
@@ -196,6 +198,9 @@ async def text_handler(update, context):
             await update.message.reply_text("Join Channel:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📡 View Live", url=f"https://t.me/{OTP_CHANNEL.replace('@', '')}")]]))
     else:
         await start(update, context)
+
+# Global variable for active tasks
+active_otp_tasks = {}
 
 app = Application.builder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
