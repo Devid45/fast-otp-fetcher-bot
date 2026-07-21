@@ -47,18 +47,19 @@ async def auto_delete_message(context, chat_id, message_id, delay):
     except:
         pass
 
-# ==================== FAST API ====================
+# ==================== API CALL ====================
 async def call_website_api_async(endpoint, method="POST", payload=None):
     try:
         url = f"https://2eee7.com/@Access/@Bot/2eee7/@public/api/{endpoint}"
         headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=6.0) as client:
             if method == "GET":
                 r = await client.get(url, headers=headers)
             else:
                 r = await client.post(url, json=payload, headers=headers)
             return r.json() if r.status_code == 200 else None
-    except:
+    except Exception as e:
+        logging.error(f"API Error: {e}")
         return None
 
 async def is_user_subscribed(context, user_id):
@@ -74,7 +75,7 @@ def get_country_details(number_str):
     prefix = clean_num[:3]
     return COUNTRY_MAP.get(prefix, {"name": "Premium Server", "flag": "🌍"})
 
-# ==================== DIRECT COUNTRY SELECTION ====================
+# ==================== DIRECT COUNTRY ====================
 async def show_countries(msg):
     kb = []
     for code, data in COUNTRY_MAP.items():
@@ -100,7 +101,7 @@ async def twofa_generate(update: Update, context):
         await update.message.reply_text("❌ Invalid Secret Key!")
     return ConversationHandler.END
 
-# ==================== FAST OTP ====================
+# ==================== OTP ====================
 async def check_otp(context, chat_id, number):
     full_number = re.sub(r'\D', '', str(number))
     for _ in range(600):
@@ -114,7 +115,6 @@ async def check_otp(context, chat_id, number):
                         country = get_country_details(number)
                         hidden = f"+{full_number[:6]}{'*'*(len(full_number)-6)}"
                         
-                        # Private
                         private_msg = await context.bot.send_message(
                             chat_id=chat_id,
                             text=f"✅ **OTP RECEIVED**\n📱 `{hidden}`\n🔑 `{otp}`",
@@ -122,7 +122,6 @@ async def check_otp(context, chat_id, number):
                         )
                         context.job_queue.run_once(auto_delete_message, BOT_CHAT_DELETE_AFTER, data=(chat_id, private_msg.message_id))
                         
-                        # Group
                         keyboard = InlineKeyboardMarkup([
                             [InlineKeyboardButton("🤖 OTP BOT যান", url=f"https://t.me/{BOT_USERNAME}")],
                             [InlineKeyboardButton("📢 আপডেট গ্রুপে যান", url=f"https://t.me/{UPDATE_CHANNEL.replace('@', '')}")]
@@ -194,7 +193,7 @@ async def handle_callback(update, context):
             )
             active_otp_tasks[query.message.chat_id] = asyncio.create_task(check_otp(context, query.message.chat_id, num))
         else:
-            await query.message.edit_text("❌ Server Busy!")
+            await query.message.edit_text("❌ Server Busy!\nকিছুক্ষণ পর আবার চেষ্টা করুন।")
 
 async def text_handler(update, context):
     if not await is_user_subscribed(context, update.effective_user.id):
