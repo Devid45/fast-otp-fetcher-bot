@@ -36,6 +36,17 @@ COUNTRY_MAP = {
     "225": {"name": "Ivory Coast", "flag": "🇨🇮"}
 }
 
+# ==================== AUTO DELETE SETTINGS ====================
+OTP_GROUP_DELETE_AFTER = 7200   # 2 ঘন্টা
+BOT_CHAT_DELETE_AFTER = 300     # 5 মিনিট
+
+async def auto_delete_message(context, chat_id, message_id, delay):
+    await asyncio.sleep(delay)
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except:
+        pass
+
 # ==================== FAST API ====================
 async def call_website_api_async(endpoint, method="POST", payload=None):
     try:
@@ -65,7 +76,8 @@ def get_country_details(number_str):
 
 # ==================== 2FA ====================
 async def twofa_start(update: Update, context):
-    await update.message.reply_text("🔐 **2FA Secret Key** পাঠান:")
+    msg = await update.message.reply_text("🔐 **2FA Secret Key** পাঠান:")
+    context.job_queue.run_once(auto_delete_message, BOT_CHAT_DELETE_AFTER, data=(update.message.chat_id, msg.message_id))
     return SECRET_KEY
 
 async def twofa_generate(update: Update, context):
@@ -74,12 +86,13 @@ async def twofa_generate(update: Update, context):
         totp = pyotp.TOTP(secret)
         code = totp.now()
         remaining = 30 - (int(datetime.now().timestamp()) % 30)
-        await update.message.reply_text(f"✅ **Code:** `{code}`\n⏱ Valid for {remaining}s", parse_mode=ParseMode.MARKDOWN)
+        msg = await update.message.reply_text(f"✅ **Code:** `{code}`\n⏱ Valid for {remaining}s", parse_mode=ParseMode.MARKDOWN)
+        context.job_queue.run_once(auto_delete_message, BOT_CHAT_DELETE_AFTER, data=(update.message.chat_id, msg.message_id))
     except:
         await update.message.reply_text("❌ Invalid Secret Key!")
     return ConversationHandler.END
 
-# ==================== OTP MONITOR (Fast) ====================
+# ==================== FAST OTP ====================
 async def check_otp(context, chat_id, number):
     full_number = re.sub(r'\D', '', str(number))
     for _ in range(600):
@@ -94,13 +107,14 @@ async def check_otp(context, chat_id, number):
                         hidden = f"+{full_number[:6]}{'*'*(len(full_number)-6)}"
                         
                         # Private Chat
-                        await context.bot.send_message(
+                        private_msg = await context.bot.send_message(
                             chat_id=chat_id,
                             text=f"✅ **OTP RECEIVED**\n📱 `{hidden}`\n🔑 `{otp}`",
                             parse_mode=ParseMode.MARKDOWN
                         )
+                        context.job_queue.run_once(auto_delete_message, BOT_CHAT_DELETE_AFTER, data=(chat_id, private_msg.message_id))
                         
-                        # Group with stylish buttons
+                        # Group Message with buttons
                         keyboard = InlineKeyboardMarkup([
                             [InlineKeyboardButton("🤖 OTP BOT যান", url=f"https://t.me/{BOT_USERNAME}")],
                             [InlineKeyboardButton("📢 আপডেট গ্রুপে যান", url=f"https://t.me/{UPDATE_CHANNEL.replace('@', '')}")]
@@ -115,16 +129,17 @@ async def check_otp(context, chat_id, number):
 🔑 **OTP Code:** `{otp}`
 🕒 **Time:** {datetime.now().strftime('%I:%M:%S %p')}
                         """
-                        await context.bot.send_message(
+                        group_msg = await context.bot.send_message(
                             chat_id=OTP_CHANNEL,
                             text=public_text.strip(),
                             parse_mode=ParseMode.MARKDOWN,
                             reply_markup=keyboard
                         )
+                        context.job_queue.run_once(auto_delete_message, OTP_GROUP_DELETE_AFTER, data=(OTP_CHANNEL, group_msg.message_id))
                         return
     await context.bot.send_message(chat_id=chat_id, text="❌ Timeout!")
 
-# ==================== SERVICES & RANGES ====================
+# ==================== SERVICES ====================
 async def show_services(msg):
     kb = [
         [InlineKeyboardButton("🔷 FACEBOOK 🔷", callback_data="service_facebook")],
@@ -152,7 +167,7 @@ async def show_ranges(msg, service):
     kb.append([InlineKeyboardButton("🔙 Back", callback_data="back_to_services")])
     await msg.edit_text("**দেশ সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
 
-# ==================== MAIN HANDLERS ====================
+# ==================== HANDLERS ====================
 async def start(update, context):
     if not await is_user_subscribed(context, update.effective_user.id):
         kb = [[InlineKeyboardButton("Join Update", url=f"https://t.me/{UPDATE_CHANNEL.replace('@', '')}")],
