@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ==================== CONFIG ====================
 TOKEN = os.getenv("BOT_TOKEN")
 API_KEY = os.getenv("SMS_API_KEY")
 
@@ -36,30 +35,22 @@ COUNTRY_MAP = {
     "225": {"name": "Ivory Coast", "flag": "🇨🇮"}
 }
 
-# ==================== AUTO DELETE ====================
-OTP_GROUP_DELETE_AFTER = 7200   # 2 ঘন্টা
-BOT_CHAT_DELETE_AFTER = 300     # 5 মিনিট
-
-async def auto_delete_message(context, chat_id, message_id, delay):
-    await asyncio.sleep(delay)
-    try:
-        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-    except:
-        pass
-
-# ==================== API CALL ====================
 async def call_website_api_async(endpoint, method="POST", payload=None):
     try:
         url = f"https://2eee7.com/@Access/@Bot/2eee7/@public/api/{endpoint}"
         headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
-        async with httpx.AsyncClient(timeout=6.0) as client:
+        async with httpx.AsyncClient(timeout=8.0) as client:
             if method == "GET":
                 r = await client.get(url, headers=headers)
             else:
                 r = await client.post(url, json=payload, headers=headers)
-            return r.json() if r.status_code == 200 else None
+            
+            logging.info(f"API {endpoint} Status: {r.status_code}")
+            if r.status_code != 200:
+                return None
+            return r.json()
     except Exception as e:
-        logging.error(f"API Error: {e}")
+        logging.error(f"API Error ({endpoint}): {e}")
         return None
 
 async def is_user_subscribed(context, user_id):
@@ -83,24 +74,6 @@ async def show_countries(msg):
     kb.append([InlineKeyboardButton("🔙 Back", callback_data="back_to_main")])
     await msg.reply_text("**দেশ সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
 
-# ==================== 2FA ====================
-async def twofa_start(update: Update, context):
-    msg = await update.message.reply_text("🔐 **2FA Secret Key** পাঠান:")
-    context.job_queue.run_once(auto_delete_message, BOT_CHAT_DELETE_AFTER, data=(update.message.chat_id, msg.message_id))
-    return SECRET_KEY
-
-async def twofa_generate(update: Update, context):
-    secret = update.message.text.strip().upper().replace(" ", "")
-    try:
-        totp = pyotp.TOTP(secret)
-        code = totp.now()
-        remaining = 30 - (int(datetime.now().timestamp()) % 30)
-        msg = await update.message.reply_text(f"✅ **Code:** `{code}`\n⏱ Valid for {remaining}s", parse_mode=ParseMode.MARKDOWN)
-        context.job_queue.run_once(auto_delete_message, BOT_CHAT_DELETE_AFTER, data=(update.message.chat_id, msg.message_id))
-    except:
-        await update.message.reply_text("❌ Invalid Secret Key!")
-    return ConversationHandler.END
-
 # ==================== OTP ====================
 async def check_otp(context, chat_id, number):
     full_number = re.sub(r'\D', '', str(number))
@@ -114,35 +87,8 @@ async def check_otp(context, chat_id, number):
                     if otp:
                         country = get_country_details(number)
                         hidden = f"+{full_number[:6]}{'*'*(len(full_number)-6)}"
-                        
-                        private_msg = await context.bot.send_message(
-                            chat_id=chat_id,
-                            text=f"✅ **OTP RECEIVED**\n📱 `{hidden}`\n🔑 `{otp}`",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                        context.job_queue.run_once(auto_delete_message, BOT_CHAT_DELETE_AFTER, data=(chat_id, private_msg.message_id))
-                        
-                        keyboard = InlineKeyboardMarkup([
-                            [InlineKeyboardButton("🤖 OTP BOT যান", url=f"https://t.me/{BOT_USERNAME}")],
-                            [InlineKeyboardButton("📢 আপডেট গ্রুপে যান", url=f"https://t.me/{UPDATE_CHANNEL.replace('@', '')}")]
-                        ])
-                        
-                        public_text = f"""
-🌟 **META FIRE OTP** 🌟
-🔥 **NEW OTP RECEIVED** 🔥
-
-{country['flag']} **{country['name']}**
-📱 `{hidden}`
-🔑 `{otp}`
-🕒 {datetime.now().strftime('%I:%M:%S %p')}
-                        """
-                        group_msg = await context.bot.send_message(
-                            chat_id=OTP_CHANNEL,
-                            text=public_text.strip(),
-                            parse_mode=ParseMode.MARKDOWN,
-                            reply_markup=keyboard
-                        )
-                        context.job_queue.run_once(auto_delete_message, OTP_GROUP_DELETE_AFTER, data=(OTP_CHANNEL, group_msg.message_id))
+                        await context.bot.send_message(chat_id=chat_id, text=f"✅ **OTP:** `{otp}`\n📱 `{hidden}`", parse_mode=ParseMode.MARKDOWN)
+                        await context.bot.send_message(chat_id=OTP_CHANNEL, text=f"🌟 **NEW OTP**\n{country['flag']} {country['name']}\n📱 `{hidden}`\n🔑 `{otp}`", parse_mode=ParseMode.MARKDOWN)
                         return
     await context.bot.send_message(chat_id=chat_id, text="❌ Timeout!")
 
@@ -161,24 +107,13 @@ async def handle_callback(update, context):
     await query.answer()
     global active_otp_tasks
 
-    if query.data == "verify":
-        if await is_user_subscribed(context, query.from_user.id):
-            await query.message.delete()
-            await context.bot.send_message(query.message.chat_id, "✅ ভেরিফাইড!", reply_markup=main_keyboard)
-        else:
-            await query.answer("চ্যানেলে জয়েন করুন!", show_alert=True)
-
-    elif query.data == "back_to_main":
-        await query.message.delete()
-        await update.message.reply_text("মেনুতে ফিরে এসেছেন।", reply_markup=main_keyboard)
-
-    elif query.data.startswith("range_any_") or query.data.startswith("chgnum_any_"):
+    if query.data.startswith("range_any_") or query.data.startswith("chgnum_any_"):
         parts = query.data.split("_")
         code = parts[2]
         if query.message.chat_id in active_otp_tasks:
             active_otp_tasks[query.message.chat_id].cancel()
         
-        await query.message.edit_text("⚡ নাম্বার অ্যালোকেট হচ্ছে...")
+        await query.message.edit_text("⚡ নাম্বার নেওয়া হচ্ছে...")
         
         res = await call_website_api_async("getnum", "POST", {"range": code})
         if res and res.get("meta", {}).get("status") == "ok":
@@ -193,7 +128,7 @@ async def handle_callback(update, context):
             )
             active_otp_tasks[query.message.chat_id] = asyncio.create_task(check_otp(context, query.message.chat_id, num))
         else:
-            await query.message.edit_text("❌ Server Busy!\nকিছুক্ষণ পর আবার চেষ্টা করুন।")
+            await query.message.edit_text("❌ Server Busy!\n\nকিছুক্ষণ পর আবার চেষ্টা করুন।")
 
 async def text_handler(update, context):
     if not await is_user_subscribed(context, update.effective_user.id):
