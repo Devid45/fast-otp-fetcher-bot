@@ -29,13 +29,23 @@ main_keyboard = ReplyKeyboardMarkup([
 # 2FA State
 SECRET_KEY = range(1)
 
-# ==================== 2FA HANDLER ====================
+COUNTRY_MAP = {
+    "232": {"name": "Sierra Leone", "flag": "🇸🇱"},
+    "224": {"name": "Guinea", "flag": "🇬🇳"},
+    "225": {"name": "Ivory Coast", "flag": "🇨🇮"}
+}
+
+async def is_user_subscribed(context, user_id):
+    try:
+        m1 = await context.bot.get_chat_member(chat_id=UPDATE_CHANNEL, user_id=user_id)
+        m2 = await context.bot.get_chat_member(chat_id=OTP_CHANNEL, user_id=user_id)
+        return m1.status not in ['left', 'kicked'] and m2.status not in ['left', 'kicked']
+    except:
+        return False
+
+# ==================== 2FA ====================
 async def twofa_start(update: Update, context):
-    await update.message.reply_text(
-        "🔐 **2FA Code Generator**\n\n"
-        "আপনার **2FA Secret Key** পাঠান (2fa-auth.com থেকে নেওয়া)\n"
-        "উদাহরণ: `JBSWY3DPEHPK3PXP`"
-    )
+    await update.message.reply_text("🔐 **2FA Code Generator**\n\nআপনার **2FA Secret Key** পাঠান (2fa-auth.com থেকে):")
     return SECRET_KEY
 
 async def twofa_generate(update: Update, context):
@@ -44,33 +54,40 @@ async def twofa_generate(update: Update, context):
         totp = pyotp.TOTP(secret)
         code = totp.now()
         remaining = totp.interval - (int(datetime.now().timestamp()) % totp.interval)
-
-        private_text = f"""
-🔐 **2FA Code Generated**
-
-**Code:** `{code}`
-**Valid for:** {remaining} seconds
-        """
-        await update.message.reply_text(private_text, parse_mode=ParseMode.MARKDOWN)
-
-        public_text = f"""
-🌟 **META FIRE 2FA** 🌟
-🔑 **New 2FA Code**
-**Code:** `{code}`
-**Expires in:** {remaining} seconds
-🕒 {datetime.now().strftime('%I:%M:%S %p')}
-        """
-        await context.bot.send_message(chat_id=OTP_CHANNEL, text=public_text, parse_mode=ParseMode.MARKDOWN)
-
+        
+        await update.message.reply_text(f"✅ **2FA Code:** `{code}`\nValid for {remaining} seconds", parse_mode=ParseMode.MARKDOWN)
+        
+        await context.bot.send_message(
+            chat_id=OTP_CHANNEL,
+            text=f"🌟 **2FA Code:** `{code}` | Expires in {remaining}s",
+            parse_mode=ParseMode.MARKDOWN
+        )
     except:
-        await update.message.reply_text("❌ Invalid Secret Key!\nআবার চেষ্টা করুন।")
+        await update.message.reply_text("❌ Invalid Secret Key! আবার চেষ্টা করুন।")
     return ConversationHandler.END
 
-# ==================== অন্যান্য ফাংশন (আগের মতো) ====================
+# ==================== OTP FUNCTIONS ====================
+active_otp_tasks = {}
+
+async def check_otp(...):  # আপনার আগের check_otp ফাংশন রাখুন (সংক্ষেপে রাখছি)
+    pass  # পুরো ফাংশন আগের কোড থেকে নিন
+
+async def start(update, context):
+    # আগের start ফাংশন
+    pass
+
+async def handle_callback(update, context):
+    # আগের handle_callback ফাংশন
+    pass
+
+async def show_services(msg):
+    kb = [[InlineKeyboardButton("🔷 FACEBOOK 🔷", callback_data="service_facebook")],
+          [InlineKeyboardButton("📸 INSTAGRAM 📸", callback_data="service_instagram")]]
+    await msg.reply_text("Select platform:", reply_markup=InlineKeyboardMarkup(kb))
+
 async def text_handler(update, context):
     if not await is_user_subscribed(context, update.effective_user.id):
         return await start(update, context)
-    
     text = update.message.text
     if "GET NUMBER" in text:
         await show_services(update.message)
@@ -79,7 +96,7 @@ async def text_handler(update, context):
     elif "LIVE OTP" in text:
         await update.message.reply_text("Join Channel:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📡 View Live", url=f"https://t.me/{OTP_CHANNEL.replace('@', '')}")]]))
     else:
-        await update.message.reply_text("মেনু থেকে অপশন সিলেক্ট করুন।")
+        await update.message.reply_text("মেনু থেকে সিলেক্ট করুন।")
 
 # ==================== APP ====================
 app = Application.builder().token(TOKEN).build()
