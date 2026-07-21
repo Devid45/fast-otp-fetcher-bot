@@ -209,4 +209,4 @@ app.add_handler(MessageHandler(filters.TEXT, text_handler))
 
 if __name__ == "__main__":
     logging.info("🤖 META FIRE OTP Bot Started Successfully!")
-    app.run_polling()
+    app.run_polling() 
