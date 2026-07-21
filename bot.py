@@ -36,7 +36,7 @@ COUNTRY_MAP = {
     "225": {"name": "Ivory Coast", "flag": "🇨🇮"}
 }
 
-# ==================== AUTO DELETE SETTINGS ====================
+# ==================== AUTO DELETE ====================
 OTP_GROUP_DELETE_AFTER = 7200   # 2 ঘন্টা
 BOT_CHAT_DELETE_AFTER = 300     # 5 মিনিট
 
@@ -74,6 +74,14 @@ def get_country_details(number_str):
     prefix = clean_num[:3]
     return COUNTRY_MAP.get(prefix, {"name": "Premium Server", "flag": "🌍"})
 
+# ==================== DIRECT COUNTRY SELECTION ====================
+async def show_countries(msg):
+    kb = []
+    for code, data in COUNTRY_MAP.items():
+        kb.append([InlineKeyboardButton(f"{data['flag']} {data['name']}", callback_data=f"range_any_{code}")])
+    kb.append([InlineKeyboardButton("🔙 Back", callback_data="back_to_main")])
+    await msg.reply_text("**দেশ সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
+
 # ==================== 2FA ====================
 async def twofa_start(update: Update, context):
     msg = await update.message.reply_text("🔐 **2FA Secret Key** পাঠান:")
@@ -106,7 +114,7 @@ async def check_otp(context, chat_id, number):
                         country = get_country_details(number)
                         hidden = f"+{full_number[:6]}{'*'*(len(full_number)-6)}"
                         
-                        # Private Chat
+                        # Private
                         private_msg = await context.bot.send_message(
                             chat_id=chat_id,
                             text=f"✅ **OTP RECEIVED**\n📱 `{hidden}`\n🔑 `{otp}`",
@@ -114,7 +122,7 @@ async def check_otp(context, chat_id, number):
                         )
                         context.job_queue.run_once(auto_delete_message, BOT_CHAT_DELETE_AFTER, data=(chat_id, private_msg.message_id))
                         
-                        # Group Message with buttons
+                        # Group
                         keyboard = InlineKeyboardMarkup([
                             [InlineKeyboardButton("🤖 OTP BOT যান", url=f"https://t.me/{BOT_USERNAME}")],
                             [InlineKeyboardButton("📢 আপডেট গ্রুপে যান", url=f"https://t.me/{UPDATE_CHANNEL.replace('@', '')}")]
@@ -125,9 +133,9 @@ async def check_otp(context, chat_id, number):
 🔥 **NEW OTP RECEIVED** 🔥
 
 {country['flag']} **{country['name']}**
-📱 **Number:** `{hidden}`
-🔑 **OTP Code:** `{otp}`
-🕒 **Time:** {datetime.now().strftime('%I:%M:%S %p')}
+📱 `{hidden}`
+🔑 `{otp}`
+🕒 {datetime.now().strftime('%I:%M:%S %p')}
                         """
                         group_msg = await context.bot.send_message(
                             chat_id=OTP_CHANNEL,
@@ -138,34 +146,6 @@ async def check_otp(context, chat_id, number):
                         context.job_queue.run_once(auto_delete_message, OTP_GROUP_DELETE_AFTER, data=(OTP_CHANNEL, group_msg.message_id))
                         return
     await context.bot.send_message(chat_id=chat_id, text="❌ Timeout!")
-
-# ==================== SERVICES ====================
-async def show_services(msg):
-    kb = [
-        [InlineKeyboardButton("🔷 FACEBOOK 🔷", callback_data="service_facebook")],
-        [InlineKeyboardButton("📸 INSTAGRAM 📸", callback_data="service_instagram")]
-    ]
-    await msg.reply_text("**প্ল্যাটফর্ম সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
-
-async def show_ranges(msg, service):
-    await msg.edit_text("🔄 দেশ লোড হচ্ছে...")
-    res = await call_website_api_async("liveaccess", "GET")
-    kb = []
-    seen = set()
-    target = service.lower()
-    
-    if res and "services" in res:
-        for s in res["services"]:
-            sid = s.get("sid", "").lower()
-            if target in sid or (target == "instagram" and ("ig" in sid or "inst" in sid)):
-                for r in s.get("ranges", []):
-                    p = re.sub(r'\D', '', str(r))[:3]
-                    if p in COUNTRY_MAP and p not in seen:
-                        seen.add(p)
-                        kb.append([InlineKeyboardButton(f"{COUNTRY_MAP[p]['flag']} {COUNTRY_MAP[p]['name']}", callback_data=f"range_{service}_{r}")])
-    
-    kb.append([InlineKeyboardButton("🔙 Back", callback_data="back_to_services")])
-    await msg.edit_text("**দেশ সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
 
 # ==================== HANDLERS ====================
 async def start(update, context):
@@ -189,21 +169,23 @@ async def handle_callback(update, context):
         else:
             await query.answer("চ্যানেলে জয়েন করুন!", show_alert=True)
 
-    elif query.data.startswith("service_"):
-        await show_ranges(query.message, query.data.split("_")[1])
+    elif query.data == "back_to_main":
+        await query.message.delete()
+        await update.message.reply_text("মেনুতে ফিরে এসেছেন।", reply_markup=main_keyboard)
 
-    elif query.data.startswith("range_") or query.data.startswith("chgnum_"):
+    elif query.data.startswith("range_any_") or query.data.startswith("chgnum_any_"):
         parts = query.data.split("_")
+        code = parts[2]
         if query.message.chat_id in active_otp_tasks:
             active_otp_tasks[query.message.chat_id].cancel()
         
         await query.message.edit_text("⚡ নাম্বার অ্যালোকেট হচ্ছে...")
         
-        res = await call_website_api_async("getnum", "POST", {"range": parts[2]})
+        res = await call_website_api_async("getnum", "POST", {"range": code})
         if res and res.get("meta", {}).get("status") == "ok":
             num = res["data"].get("full_number") or res["data"].get("number")
             c = get_country_details(num)
-            btn = [[InlineKeyboardButton("🔄 Change Number", callback_data=f"chgnum_{parts[1]}_{parts[2]}")]]
+            btn = [[InlineKeyboardButton("🔄 Change Number", callback_data=f"chgnum_any_{code}")]]
             
             await query.message.edit_text(
                 f"🚀 **NUMBER ALLOCATED**\n\n{c['flag']} **{c['name']}**\n📱 `+{re.sub(r'\D', '', str(num))}`\n⏳ OTP-এর জন্য অপেক্ষা...",
@@ -214,17 +196,13 @@ async def handle_callback(update, context):
         else:
             await query.message.edit_text("❌ Server Busy!")
 
-    elif query.data == "back_to_services":
-        await query.message.delete()
-        await show_services(query.message)
-
 async def text_handler(update, context):
     if not await is_user_subscribed(context, update.effective_user.id):
         return await start(update, context)
     
     text = update.message.text
     if "GET NUMBER" in text:
-        await show_services(update.message)
+        await show_countries(update.message)
     elif "2FA CODE" in text:
         return await twofa_start(update, context)
     elif "LIVE OTP" in text:
