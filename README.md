@@ -6,3 +6,4 @@ Setup
     .env.example কপি করে .env বানাও
     pip install -r requirements.txt
     python bot.py
+Last updated: 2026-07-21
