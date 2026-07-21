@@ -1,1 +1,1 @@
-pip install python-telegram-bot pyotp httpx python-dotenv
+worker: python bot.py
